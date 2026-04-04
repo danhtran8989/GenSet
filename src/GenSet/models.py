@@ -54,10 +54,10 @@ class ModelsManager:
         
         # Fallback to default/known Mistral models
         default_models = [
-            "mistral-large-latest",
-            "mistral-medium-latest",
+            # "mistral-large-latest",
+            # "mistral-medium-latest",
             "mistral-small-latest",
-            "mistral-tiny-latest",
+            # "mistral-tiny-latest",
         ]
         ModelsManager._mistral_models_cache = default_models
         return default_models
@@ -111,14 +111,8 @@ class ModelsManager:
         
         # Fallback to popular/known Ollama models
         default_models = [
-            "llama3.2",
-            "llama3",
-            "llama2",
-            "mistral",
-            "neural-chat",
-            "orca-mini",
-            "phi",
-            "openchat",
+            "gemma3:4b-cloud",
+            "gemma3:12b-cloud",
         ]
         ModelsManager._ollama_models_cache = default_models
         return default_models
