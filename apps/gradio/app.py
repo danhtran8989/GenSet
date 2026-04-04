@@ -70,35 +70,46 @@ def create_dataset_worker(
     languages: List[str],
     domain: str,
     labels: str,
-    num_samples: int,
+    num_samples: int,           # This is now TOTAL samples across everything
     models_dict: Dict,
     temperature: float,
     output_file: str,
     balance_labels: bool,
     worker_id: int,
     total_workers: int,
+    total_combinations: int,    # NEW: number of (platform, language) pairs
 ) -> Tuple[str, List[str]]:
     """
     Worker function to create dataset portion in parallel.
-    
-    Returns:
-        Tuple of (worker_status_message, list_of_temp_file_paths)
+    Now respects total num_samples across all platforms and languages.
     """
     temp_files = []
     try:
         generator = DatasetGenerator()
         model = models_dict.get(platform, [""])[0] if models_dict.get(platform) else None
-        
-        # Adjust samples per worker
+
+        # Calculate how many samples this worker should generate in total
         samples_per_worker = num_samples // total_workers
         if worker_id == 0:
-            samples_per_worker += num_samples % total_workers  # Add remainder to first worker
-        
-        # For each language, generate samples
-        for language in languages:
+            samples_per_worker += num_samples % total_workers
+
+        # Distribute samples across languages for this platform
+        samples_per_language = samples_per_worker // len(languages)
+        remainder = samples_per_worker % len(languages)
+
+        for lang_idx, language in enumerate(languages):
+            lang_samples = samples_per_language + (1 if lang_idx < remainder else 0)
+
+            # Further distribute across total combinations if needed for fairness
+            # But for simplicity, we do per-platform language distribution first
+
+            if lang_samples <= 0:
+                continue
+
             temp_file = output_file.replace(".tsv", f"_{platform}_{language}_w{worker_id}.tsv")
+            
             result_path = generator.create_dataset(
-                num_samples=samples_per_worker,
+                num_samples=lang_samples,                    # <-- Now per language
                 platform=platform,
                 language=language,
                 labels=parse_labels(labels),
@@ -107,16 +118,16 @@ def create_dataset_worker(
                 temperature=temperature,
                 output_file=temp_file,
                 delay=0.8,
-                multilingual=False,
+                multilingual=False,      # We handle multi-language at app level
                 balance_labels=balance_labels,
             )
             temp_files.append(result_path)
-        
-        status = f"✓ Worker {worker_id} ({platform}): Created {samples_per_worker} samples"
+
+        status = f"✓ Worker {worker_id} ({platform}): Generated {samples_per_worker} samples across {len(languages)} languages"
         return (status, temp_files)
+
     except Exception as e:
         return (f"✗ Worker {worker_id} ({platform}): Error - {str(e)}", temp_files)
-
 
 def merge_tsv_files(
     temp_files: List[str],
@@ -205,29 +216,32 @@ def create_dataset(
     languages: List[str],
     domain: str,
     labels: str,
-    num_samples: int,
+    num_samples: int,           # TRUE total number of rows in final dataset
     models_dict: Dict,
     temperature: float,
     output_file: str,
     balance_labels: bool,
     num_workers: int,
 ):
-    """Create dataset using multiple workers and platforms, then merge and cleanup."""
+    """Create dataset with exact total number of samples across all combinations."""
     if not platforms or not languages:
-        return "⚠️ Please select at least one platform and language"
-    
+        return "⚠️ Please select at least one platform and one language"
+
     if num_workers < 1:
         num_workers = 1
-    
+
+    total_combinations = len(platforms) * len(languages)
+    if total_combinations == 0:
+        return "⚠️ Invalid platform/language combination"
+
     results = []
     all_temp_files = []
-    
+
     try:
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             futures = {}
             worker_id = 0
-            
-            # Submit tasks for each platform with workers
+
             for platform in platforms:
                 for w in range(num_workers):
                     future = executor.submit(
@@ -236,18 +250,18 @@ def create_dataset(
                         languages=languages,
                         domain=domain,
                         labels=labels,
-                        num_samples=num_samples,
+                        num_samples=num_samples,          # Pass total
                         models_dict=models_dict,
                         temperature=temperature,
                         output_file=output_file,
                         balance_labels=balance_labels,
                         worker_id=worker_id,
-                        total_workers=num_workers,
+                        total_workers=num_workers * len(platforms),  # Total actual workers
+                        total_combinations=total_combinations,       # NEW
                     )
                     futures[future] = worker_id
                     worker_id += 1
-            
-            # Collect results as they complete
+
             for future in as_completed(futures):
                 try:
                     status_msg, temp_files = future.result()
@@ -255,18 +269,27 @@ def create_dataset(
                     all_temp_files.extend(temp_files)
                 except Exception as e:
                     results.append(f"✗ Worker error: {str(e)}")
-    
+
     except Exception as e:
         return f"✗ Fatal error: {str(e)}"
-    
-    # Merge temporary files
+
+    # Merge
     merge_success, merge_msg = merge_tsv_files(all_temp_files, output_file, models_dict, platforms)
     results.append(merge_msg)
-    
+
     summary = "\n".join(results)
     status_icon = "✓" if merge_success else "✗"
-    return f"{status_icon} Dataset creation completed!\n\n{summary}\n\nOutput: {output_file}"
+    
+    final_count = 0
+    try:
+        if os.path.exists(output_file):
+            final_count = len(pd.read_csv(output_file, sep='\t'))
+    except:
+        pass
 
+    return (f"{status_icon} Dataset creation completed!\n"
+            f"Total rows: {final_count} (target: {num_samples})\n\n"
+            f"{summary}\n\nOutput: {output_file}")
 
 def get_download_file(output_file: str) -> str:
     """
