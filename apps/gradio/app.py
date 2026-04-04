@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import argparse
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT_DIR / "src"
@@ -95,10 +96,27 @@ def build_interface() -> gr.Blocks:
     return demo
 
 
-def main() -> None:
+def main(share: bool = False, debug: bool = False) -> None:
     demo = build_interface()
-    demo.launch(share=False)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=share, debug=debug)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="GenSet Gradio Web Interface"
+    )
+    
+    parser.add_argument(
+        "--share", 
+        action="store_true",
+        help="Enable public sharing link (Gradio share)"
+    )
+
+    parser.add_argument(
+        "--debug", 
+        action="store_true",
+        help="Enable debug mode with verbose logging"
+    )
+
+    args = parser.parse_args()
+    main(share=args.share, debug=args.debug)
