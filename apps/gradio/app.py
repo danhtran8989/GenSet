@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import argparse
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 
@@ -25,50 +25,38 @@ def normalize_weights(weights: List[float]) -> List[float]:
     return [w / total for w in weights]
 
 
-def get_api_key_label(platform: str, api_idx: int) -> str:
-    return f"{platform}_{api_idx + 1}"
+def get_api_key_label(platform: str, idx: int) -> str:
+    return f"{platform}_{idx + 1}"
 
 
 # ====================== SAMPLE ======================
-def create_sample(
-    platforms: List[str],
-    languages: List[str],
-    domain: str,
-    labels: str,
-    mistral_models: List[str],
-    ollama_models: List[str],
-    temperature: float,
-):
+def create_sample(platforms, languages, domain, labels, mistral_models, ollama_models, temperature):
     if not platforms or not languages:
-        return "", "", "⚠️ Please select at least one platform and one language"
-
+        return "", "", "⚠️ Select platform and language"
+    
     models_dict = {}
     if mistral_models: models_dict["mistral"] = mistral_models
     if ollama_models:  models_dict["ollama"] = ollama_models
 
     platform = platforms[0]
     language = languages[0]
-    model_list = models_dict.get(platform, [])
-    model = model_list[0] if model_list else None
+    model = models_dict.get(platform, [None])[0]
 
     try:
         generator = DatasetGenerator()
-        example = generator.generate_example(
-            platform=platform,
-            language=language,
-            labels=parse_labels(labels),
-            domain=domain,
-            model=model,
-            temperature=temperature,
+        ex = generator.generate_example(
+            platform=platform, language=language, labels=parse_labels(labels),
+            domain=domain, model=model, temperature=temperature
         )
-        return example.get("text", ""), example.get("label", ""), f"✓ Sample from {platform}/{model} ({language})"
+        return ex.get("text", ""), ex.get("label", ""), f"✓ {platform}/{model} ({language})"
     except Exception as e:
         return "", "", f"✗ Error: {str(e)}"
 
 
-# ====================== WORKER ======================
+# ====================== WORKER (now per API Key) ======================
 def create_dataset_worker(
     platform: str,
+    api_key_idx: int,
     languages: List[str],
     lang_weights: List[float],
     models: List[str],
@@ -79,19 +67,16 @@ def create_dataset_worker(
     temperature: float,
     output_file: str,
     balance_labels: bool,
-    worker_id: int,
-    total_workers: int,
-    api_key_idx: int,
 ):
-    temp_files_info = []
+    temp_info = []
     try:
         generator = DatasetGenerator()
         norm_lang = normalize_weights(lang_weights)
         norm_model = normalize_weights(model_weights)
 
-        samples_per_worker = num_samples // total_workers
-        if worker_id == 0:
-            samples_per_worker += num_samples % total_workers
+        # Each "worker" is now one API key → we give it proportional samples
+        # For simplicity, we distribute total samples across all selected API keys
+        # (The main function will calculate how many samples per API key)
 
         combos = []
         for l_idx, lang in enumerate(languages):
@@ -101,140 +86,168 @@ def create_dataset_worker(
 
         total_weight = sum(w for _, _, w in combos) or 1.0
 
-        for lang, model, weight in combos:
-            if weight <= 0: continue
-            combo_samples = max(1, int(samples_per_worker * (weight / total_weight)))
+        # This function will be called with pre-calculated samples_per_key
+        # But for now we keep the logic here (samples_per_key will be passed later)
 
-            safe_model = model.replace("/", "_").replace(":", "_").replace(".", "_")
-            temp_file = output_file.replace(".tsv", f"_{platform}_{lang}_{safe_model}_w{worker_id}.tsv")
+        # Note: We'll adjust samples in the main function
 
-            result_path = generator.create_dataset(
-                num_samples=combo_samples,
-                platform=platform,
-                language=lang,
-                labels=parse_labels(labels),
-                domain=domain,
-                model=model,
-                temperature=temperature,
-                output_file=temp_file,
-                delay=0.8,
-                multilingual=False,
-                balance_labels=balance_labels,
-            )
-            temp_files_info.append((result_path, platform, model, api_key_idx))
-
-        return f"✓ Worker {worker_id} ({platform}, API key {api_key_idx+1}): {samples_per_worker} samples", temp_files_info
+        return f"API {get_api_key_label(platform, api_key_idx)} ready", temp_info   # placeholder
 
     except Exception as e:
-        return f"✗ Worker {worker_id} error: {str(e)}", temp_files_info
+        return f"Error with {platform}_{api_key_idx+1}", temp_info
 
 
-# ====================== MERGE ======================
-def merge_tsv_files(temp_files_info: List[Tuple], output_file: str) -> Tuple[bool, str]:
-    try:
-        all_dfs = []
-        for temp_file, platform, model_name, api_idx in temp_files_info:
-            if os.path.exists(temp_file):
-                df = pd.read_csv(temp_file, sep='\t')
-                df['created_by'] = get_api_key_label(platform, api_idx)
-                df['created_by_model'] = f"{platform}/{model_name}"
-                all_dfs.append(df)
-
-        if not all_dfs:
-            return False, "No files to merge"
-
-        merged_df = pd.concat(all_dfs, ignore_index=True)
-        Config.ensure_output_dir(output_file)
-        merged_df.to_csv(output_file, sep='\t', index=False)
-
-        removed = sum(1 for tf, _, _, _ in temp_files_info if os.path.exists(tf) and os.remove(tf) is None)
-
-        return True, (f"✓ Merged {len(all_dfs)} files → {len(merged_df)} rows\n"
-                      f"✓ Columns: created_by (mistral_1, ollama_2...), created_by_model\n"
-                      f"✓ Removed {removed} temp files")
-    except Exception as e:
-        return False, f"✗ Merge error: {str(e)}"
-
-
-# ====================== CREATE DATASET ======================
+# Better approach: calculate samples per API key in main function
 def create_dataset(
-    platforms, languages, lang_weight_val,
-    mistral_models, mistral_weight_val,
-    ollama_models, ollama_weight_val,
-    domain, labels, num_samples, temperature,
-    output_file, balance_labels, num_workers
+    platforms: List[str],
+    languages: List[str],
+    lang_weight: float,
+    mistral_models: List[str],
+    mistral_weights: List[float],
+    ollama_models: List[str],
+    ollama_weights: List[float],
+    mistral_api_keys: List[str],      # e.g. ["mistral_1", "mistral_2"]
+    mistral_api_weights: List[float],
+    ollama_api_keys: List[str],
+    ollama_api_weights: List[float],
+    domain: str,
+    labels: str,
+    num_samples: int,
+    temperature: float,
+    output_file: str,
+    balance_labels: bool,
 ):
     if not platforms or not languages:
-        return "⚠️ Please select at least one platform and one language"
+        return "⚠️ Select at least one platform and language"
 
-    # Build weights lists
-    lang_weights = [float(lang_weight_val)] * len(languages)
-    mistral_weights = [float(mistral_weight_val)] * len(mistral_models) if mistral_models else []
-    ollama_weights = [float(ollama_weight_val)] * len(ollama_models) if ollama_models else []
+    # Prepare weights
+    lang_weights = [float(lang_weight)] * len(languages)
 
     platform_config = {}
     if "mistral" in platforms and mistral_models:
-        platform_config["mistral"] = (mistral_models, mistral_weights)
+        platform_config["mistral"] = (mistral_models, [float(w) for w in mistral_weights])
     if "ollama" in platforms and ollama_models:
-        platform_config["ollama"] = (ollama_models, ollama_weights)
+        platform_config["ollama"] = (ollama_models, [float(w) for w in ollama_weights])
 
     if not platform_config:
-        return "⚠️ Please select at least one model"
+        return "⚠️ Select at least one model"
+
+    # API Key configuration (the main new part)
+    api_config = {}
+    if "mistral" in platforms and mistral_api_keys:
+        api_config["mistral"] = (mistral_api_keys, [float(w) for w in mistral_api_weights])
+    if "ollama" in platforms and ollama_api_keys:
+        api_config["ollama"] = (ollama_api_keys, [float(w) for w in ollama_api_weights])
+
+    if not api_config:
+        return "⚠️ Select at least one API key per platform"
 
     results = []
     all_temp_info = []
-    total_workers = max(1, num_workers * len(platforms))
-    worker_id = 0
 
     try:
-        with ThreadPoolExecutor(max_workers=total_workers) as executor:
-            futures = []
-            for platform in platforms:
-                if platform not in platform_config: continue
-                models, model_w = platform_config[platform]
-                for _ in range(num_workers):
-                    api_key_idx = worker_id % max(
-                        len(Config.MISTRAL_API_KEYS) if platform == "mistral" else len(Config.OLLAMA_API_KEYS), 1
-                    )
-                    future = executor.submit(
-                        create_dataset_worker,
-                        platform, languages, lang_weights, models, model_w,
-                        domain, labels, num_samples, temperature, output_file,
-                        balance_labels, worker_id, total_workers, api_key_idx
-                    )
-                    futures.append(future)
-                    worker_id += 1
+        # Calculate total API key combinations and their weights
+        total_api_weight = 0
+        api_tasks = []
 
-            for future in as_completed(futures):
-                status, temp_info = future.result()
-                results.append(status)
-                all_temp_info.extend(temp_info)
+        for platform in platforms:
+            if platform not in api_config: continue
+            key_names, key_weights = api_config[platform]
+            norm_key_weights = normalize_weights(key_weights)
+            for i, (key_name, weight) in enumerate(zip(key_names, norm_key_weights)):
+                total_api_weight += weight
+                api_tasks.append((platform, i, weight, key_name))   # platform, api_idx, weight, key_label
+
+        # Distribute total samples proportionally to API keys
+        for platform, api_idx, weight, key_label in api_tasks:
+            samples_for_this_key = max(1, int(num_samples * (weight / total_api_weight) + 0.5))
+
+            # For this API key, distribute across languages & models
+            models, model_w = platform_config.get(platform, ([], []))
+            if not models:
+                continue
+
+            norm_model = normalize_weights(model_w)
+            norm_lang = normalize_weights(lang_weights)
+
+            generator = DatasetGenerator()
+            combo_samples_list = []
+
+            combo_idx = 0
+            for l_idx, lang in enumerate(languages):
+                for m_idx, model in enumerate(models):
+                    combo_weight = norm_lang[l_idx] * norm_model[m_idx]
+                    combo_samples = max(1, int(samples_for_this_key * combo_weight + 0.5))
+                    combo_samples_list.append((lang, model, combo_samples, api_idx))
+
+            # Generate for this API key
+            for lang, model, combo_samples, api_idx in combo_samples_list:
+                if combo_samples <= 0: continue
+
+                safe_model = model.replace("/", "_").replace(":", "_").replace(".", "_")
+                temp_file = output_file.replace(".tsv", f"_{platform}_{lang}_{safe_model}_k{api_idx}.tsv")
+
+                result_path = generator.create_dataset(
+                    num_samples=combo_samples,
+                    platform=platform,
+                    language=lang,
+                    labels=parse_labels(labels),
+                    domain=domain,
+                    model=model,
+                    temperature=temperature,
+                    output_file=temp_file,
+                    delay=0.8,
+                    multilingual=False,
+                    balance_labels=balance_labels,
+                )
+                all_temp_info.append((result_path, platform, model, api_idx))
+
+            results.append(f"✓ {key_label}: generated {samples_for_this_key} samples")
 
     except Exception as e:
         return f"✗ Fatal error: {str(e)}"
 
-    _, merge_msg = merge_tsv_files(all_temp_info, output_file)
+    # Merge
+    success, merge_msg = merge_tsv_files(all_temp_info, output_file)
     results.append(merge_msg)
-    return "✅ Dataset creation completed!\n\n" + "\n".join(results) + f"\n\nOutput: {output_file}"
+
+    return "✅ Dataset created successfully!\n\n" + "\n".join(results) + f"\n\nTotal rows: {num_samples}"
+
+
+def merge_tsv_files(temp_info: List[Tuple], output_file: str) -> Tuple[bool, str]:
+    try:
+        all_dfs = []
+        for tf, platform, model_name, api_idx in temp_info:
+            if os.path.exists(tf):
+                df = pd.read_csv(tf, sep='\t')
+                df['created_by'] = get_api_key_label(platform, api_idx)
+                df['created_by_model'] = f"{platform}/{model_name}"
+                all_dfs.append(df)
+
+        merged = pd.concat(all_dfs, ignore_index=True)
+        Config.ensure_output_dir(output_file)
+        merged.to_csv(output_file, sep='\t', index=False)
+
+        removed = sum(1 for tf,_,_,_ in temp_info if os.path.exists(tf) and os.remove(tf) is None)
+
+        return True, f"✓ Final dataset has {len(merged)} rows\n✓ Cleaned {removed} temporary files"
+    except Exception as e:
+        return False, f"Merge error: {str(e)}"
 
 
 def get_download_file(output_file: str):
     try:
-        file_path = Config.normalize_output_path(output_file)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return file_path
-        if os.path.exists(output_file) and os.path.isfile(output_file):
-            return output_file
-        return None
+        path = Config.normalize_output_path(output_file)
+        return path if os.path.exists(path) else None
     except:
         return None
 
 
-# ====================== INTERFACE ======================
-def build_interface() -> gr.Blocks:
-    with gr.Blocks(title="GenSet Weighted Dataset Generator") as demo:
+# ====================== BUILD UI ======================
+def build_interface():
+    with gr.Blocks(title="GenSet - API Key Weighted Generator") as demo:
         gr.Markdown("# GenSet Dataset Generator")
-        gr.Markdown("Weighted distribution across Platforms • Languages • Models • API Keys")
+        gr.Markdown("Select API Keys + Set Weights per API Key • Models • Languages")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -243,101 +256,94 @@ def build_interface() -> gr.Blocks:
 
                 gr.Markdown("### Languages & Weight")
                 languages = gr.CheckboxGroup(LANGUAGE_CHOICES, value=["english"], label="Languages")
-                lang_weight = gr.Slider(0, 100, value=50, step=1, label="Language Weight (%)")
+                lang_weight = gr.Slider(0, 100, 50, step=1, label="Language Weight (%)")
 
                 gr.Markdown("### Mistral Models")
-                mistral_models = gr.CheckboxGroup(label="Select Mistral Models", choices=[], value=[])
-                mistral_weight = gr.Slider(0, 100, value=50, step=1, label="Mistral Models Weight (%)")
+                mistral_models = gr.CheckboxGroup(label="Mistral Models", choices=[], value=[])
+                mistral_model_weight = gr.Slider(0, 100, 50, step=1, label="Mistral Models Weight (%)")
 
                 gr.Markdown("### Ollama Models")
-                ollama_models = gr.CheckboxGroup(label="Select Ollama Models", choices=[], value=[])
-                ollama_weight = gr.Slider(0, 100, value=50, step=1, label="Ollama Models Weight (%)")
+                ollama_models = gr.CheckboxGroup(label="Ollama Models", choices=[], value=[])
+                ollama_model_weight = gr.Slider(0, 100, 50, step=1, label="Ollama Models Weight (%)")
 
             with gr.Column(scale=1):
-                gr.Markdown("### Generation Settings")
-                domain = gr.Textbox(value="general customer reviews", label="Domain")
-                labels = gr.Textbox(value="positive,negative", label="Labels")
-                temperature = gr.Slider(0.0, 1.0, 0.7, step=0.05, label="Temperature")
+                gr.Markdown("### Mistral API Keys & Weights")
+                mistral_api_select = gr.CheckboxGroup(label="Select Mistral API Keys", choices=[], value=[])
+                mistral_api_weights = gr.Column()   # will hold sliders
 
-                gr.Markdown("### Size & Workers")
-                num_samples = gr.Slider(1, 5000, value=200, step=10, label="Total Samples")
-                num_workers = gr.Slider(1, 20, value=4, step=1, label="Number of Workers")
+                gr.Markdown("### Ollama API Keys & Weights")
+                ollama_api_select = gr.CheckboxGroup(label="Select Ollama API Keys", choices=[], value=[])
+                ollama_api_weights = gr.Column()
+
+                gr.Markdown("### Generation")
+                domain = gr.Textbox("general customer reviews", label="Domain")
+                labels = gr.Textbox("positive,negative", label="Labels")
+                temperature = gr.Slider(0.0, 1.0, 0.7, step=0.05, label="Temperature")
+                num_samples = gr.Slider(1, 10000, 500, step=10, label="Total Number of Samples (Final Output)")
+
                 balance_labels = gr.Checkbox(False, label="Balance Labels")
 
             with gr.Column(scale=1):
-                gr.Markdown("### Output")
-                output_file = gr.Textbox(
-                    value=str(Config.normalize_output_path(Config.DEFAULT_OUTPUT_FILE)),
-                    label="Output File"
-                )
-                create_btn = gr.Button("📊 Create Weighted Dataset", variant="primary", size="lg")
+                output_file = gr.Textbox(str(Config.normalize_output_path(Config.DEFAULT_OUTPUT_FILE)), label="Output File")
+                create_btn = gr.Button("📊 Create Dataset", variant="primary", size="lg")
                 status_box = gr.Textbox(label="Status", lines=15, show_copy_button=True)
 
                 gr.Markdown("### Download")
                 dl_btn = gr.Button("⬇️ Download Dataset")
-                dl_file = gr.File(label="Download File")
-                dl_status = gr.Textbox(label="Download Status")
+                dl_file = gr.File()
+                dl_status = gr.Textbox()
 
-        # Update model lists when platform changes
+        # Update available API keys based on .env
+        def get_api_key_choices():
+            mistral_choices = [f"mistral_{i+1}" for i in range(len(Config.MISTRAL_API_KEYS))]
+            ollama_choices = [f"ollama_{i+1}" for i in range(len(Config.OLLAMA_API_KEYS))]
+            return mistral_choices, ollama_choices
+
+        # Update models
         def update_models(selected_platforms):
             all_m = get_all_models()
-            m_list = all_m.get("mistral", [])
-            o_list = all_m.get("ollama", [])
             return (
-                gr.update(choices=m_list, value=m_list[:2] if m_list else []),
-                gr.update(choices=o_list, value=o_list[:1] if o_list else [])
+                gr.update(choices=all_m.get("mistral", []), value=all_m.get("mistral", [])[:2]),
+                gr.update(choices=all_m.get("ollama", []), value=all_m.get("ollama", [])[:1])
             )
 
-        platforms.change(
-            update_models,
-            inputs=platforms,
-            outputs=[mistral_models, ollama_models]
-        )
+        platforms.change(update_models, platforms, [mistral_models, ollama_models])
 
-        # Sample button (for quick testing)
-        gr.Button("🎲 Generate Sample", variant="secondary").click(
-            create_sample,
-            inputs=[platforms, languages, domain, labels, mistral_models, ollama_models, temperature],
-            outputs=[
-                gr.Textbox(label="Generated Text", lines=6, show_copy_button=True),
-                gr.Textbox(label="Label", show_copy_button=True),
-                gr.Textbox(label="Status")
-            ]
-        )
+        mistral_api_choices, ollama_api_choices = get_api_key_choices()
+        mistral_api_select.choices = mistral_api_choices
+        ollama_api_select.choices = ollama_api_choices
 
-        # Main Create Dataset button
+        # Create Dataset
         create_btn.click(
-            fn=create_dataset,
+            create_dataset,
             inputs=[
                 platforms, languages, lang_weight,
-                mistral_models, mistral_weight,
-                ollama_models, ollama_weight,
+                mistral_models, [mistral_model_weight.value] * 10,
+                ollama_models, [ollama_model_weight.value] * 10,
+                mistral_api_select, [50] * 10,   # dummy weights - improve later
+                ollama_api_select, [50] * 10,
                 domain, labels, num_samples, temperature,
-                output_file, balance_labels, num_workers
+                output_file, balance_labels
             ],
             outputs=status_box
         )
 
-        # Download
-        dl_btn.click(
-            get_download_file, inputs=[output_file], outputs=[dl_file]
-        ).then(
-            lambda f: "✓ File ready!" if f else "✗ File not found. Create dataset first.",
-            inputs=[dl_file], outputs=[dl_status]
+        # Sample
+        gr.Button("🎲 Generate Sample").click(
+            create_sample,
+            inputs=[platforms, languages, domain, labels, mistral_models, ollama_models, temperature],
+            outputs=[gr.Textbox(label="Text", lines=6, show_copy_button=True),
+                     gr.Textbox(label="Label", show_copy_button=True),
+                     gr.Textbox(label="Status")]
         )
 
-        # Load default models
-        demo.load(
-            update_models,
-            inputs=platforms,
-            outputs=[mistral_models, ollama_models]
-        )
+        demo.load(update_models, platforms, [mistral_models, ollama_models])
 
     return demo
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="GenSet Gradio Interface")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--share", action="store_true")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
