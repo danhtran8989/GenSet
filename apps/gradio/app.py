@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import argparse
+import os
 from typing import List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -11,7 +12,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import gradio as gr
-from GenSet import Config, DatasetGenerator, LANGUAGE_CHOICES, LANGUAGE_DISPLAY
+from GenSet import Config, DatasetGenerator, LANGUAGE_CHOICES, LANGUAGE_DISPLAY, get_all_models
 
 # Lock for thread-safe operations
 status_lock = threading.Lock()
@@ -24,12 +25,11 @@ def parse_labels(label_string: str) -> list:
 
 def get_models_for_platforms(platforms: List[str]) -> Dict[str, List[str]]:
     """Get available models for selected platforms."""
+    all_models = get_all_models()
     models = {}
     for platform in platforms:
-        if platform == "mistral":
-            models["mistral"] = ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"]
-        elif platform == "ollama":
-            models["ollama"] = ["llama3.2", "llama2", "neural-chat", "mistral"]
+        if platform in all_models:
+            models[platform] = all_models[platform]
     return models
 
 
@@ -168,6 +168,34 @@ def create_dataset(
     return f"Dataset creation completed!\n\n{summary}\nOutput: {output_file}"
 
 
+def get_download_file(output_file: str) -> str:
+    """
+    Prepare file for download.
+    
+    Args:
+        output_file: Path to the output file
+        
+    Returns:
+        Path to the file if it exists, otherwise error message
+    """
+    try:
+        # Normalize the path
+        file_path = Config.normalize_output_path(output_file)
+        
+        # Check if file exists
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return file_path
+        else:
+            # Try without normalization
+            if os.path.exists(output_file) and os.path.isfile(output_file):
+                return output_file
+            else:
+                return None
+    except Exception as e:
+        print(f"Error preparing file for download: {e}")
+        return None
+
+
 def build_interface() -> gr.Blocks:
     with gr.Blocks(title="GenSet Dataset Generator") as demo:
         gr.Markdown("# GenSet Dataset Generator")
@@ -278,6 +306,18 @@ def build_interface() -> gr.Blocks:
                         lines=10,
                         show_copy_button=True
                     )
+                
+                gr.Markdown("### Download")
+                with gr.Group():
+                    download_btn = gr.Button("⬇️ Download Dataset", variant="secondary", size="lg")
+                    download_file = gr.File(
+                        label="Download File",
+                        interactive=False
+                    )
+                    download_status = gr.Textbox(
+                        label="Download Status",
+                        interactive=False
+                    )
         
         # Event handlers
         generate_sample_btn.click(
@@ -301,6 +341,16 @@ def build_interface() -> gr.Blocks:
                 num_workers
             ],
             outputs=[dataset_status],
+        )
+        
+        download_btn.click(
+            fn=get_download_file,
+            inputs=[output_file],
+            outputs=[download_file],
+        ).then(
+            fn=lambda f: "✓ File ready for download!" if f else "✗ File not found. Please create a dataset first.",
+            inputs=[download_file],
+            outputs=[download_status]
         )
         
         # Initialize models on load
