@@ -14,7 +14,6 @@ if str(SRC_DIR) not in sys.path:
 import gradio as gr
 from GenSet import Config, DatasetGenerator, LANGUAGE_CHOICES, LANGUAGE_DISPLAY, get_all_models
 
-
 def parse_labels(label_string: str) -> list:
     labels = [label.strip() for label in label_string.split(",") if label.strip()]
     return labels or ["positive", "negative"]
