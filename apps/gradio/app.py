@@ -24,32 +24,49 @@ def parse_labels(label_string: str) -> list:
     return labels or ["positive", "negative"]
 
 
-def get_models_for_platforms(platforms: List[str]) -> Dict[str, List[str]]:
-    """Get available models for selected platforms."""
+def get_models_for_platforms(platforms: List[str]) -> Tuple[Dict, List[str], List[str]]:
+    """Return available models for selected platforms + initial selections"""
     all_models = get_all_models()
-    models = {}
-    for platform in platforms:
-        if platform in all_models:
-            models[platform] = all_models[platform]
-    return models
+    mistral_models = all_models.get("mistral", [])
+    ollama_models = all_models.get("ollama", [])
 
+    selected_mistral = mistral_models[:2] if mistral_models else []   # default first 2
+    selected_ollama = ollama_models[:1] if ollama_models else []
+
+    return {
+        "mistral": mistral_models,
+        "ollama": ollama_models
+    }, selected_mistral, selected_ollama
+
+def get_selected_models(mistral_selected: List[str], ollama_selected: List[str]) -> Dict[str, List[str]]:
+    """Build models_dict from checkbox selections"""
+    models_dict = {}
+    if mistral_selected:
+        models_dict["mistral"] = mistral_selected
+    if ollama_selected:
+        models_dict["ollama"] = ollama_selected
+    return models_dict
 
 def create_sample(
     platforms: List[str],
     languages: List[str],
     domain: str,
     labels: str,
-    models_dict: Dict,
+    mistral_models: List[str],
+    ollama_models: List[str],
     temperature: float,
 ):
-    """Generate a sample from the first platform and language."""
+    """Generate a sample using the first selected model of the first platform"""
     if not platforms or not languages:
         return "", "", "⚠️ Please select at least one platform and language"
+
+    models_dict = get_selected_models(mistral_models, ollama_models)
     
     platform = platforms[0]
     language = languages[0]
-    model = models_dict.get(platform, [""])[0] if models_dict.get(platform) else None
-    
+    model_list = models_dict.get(platform, [])
+    model = model_list[0] if model_list else None
+
     try:
         generator = DatasetGenerator()
         example = generator.generate_example(
@@ -57,77 +74,115 @@ def create_sample(
             language=language,
             labels=parse_labels(labels),
             domain=domain,
-            model=model or None,
+            model=model,
             temperature=temperature,
         )
-        return example["text"], example["label"], f"✓ Sample generated from {platform} ({language})"
+        return example["text"], example["label"], f"✓ Sample from {platform}/{model} ({language})"
     except Exception as e:
         return "", "", f"✗ Error: {str(e)}"
 
 
-def create_dataset_worker(
-    platform: str,
+def create_sample(
+    platforms: List[str],
     languages: List[str],
     domain: str,
     labels: str,
-    num_samples: int,           # This is now TOTAL samples across everything
-    models_dict: Dict,
+    mistral_models: List[str],
+    ollama_models: List[str],
+    temperature: float,
+):
+    """Generate a sample using the first selected model of the first platform"""
+    if not platforms or not languages:
+        return "", "", "⚠️ Please select at least one platform and language"
+
+    models_dict = get_selected_models(mistral_models, ollama_models)
+    
+    platform = platforms[0]
+    language = languages[0]
+    model_list = models_dict.get(platform, [])
+    model = model_list[0] if model_list else None
+
+    try:
+        generator = DatasetGenerator()
+        example = generator.generate_example(
+            platform=platform,
+            language=language,
+            labels=parse_labels(labels),
+            domain=domain,
+            model=model,
+            temperature=temperature,
+        )
+        return example["text"], example["label"], f"✓ Sample from {platform}/{model} ({language})"
+    except Exception as e:
+        return "", "", f"✗ Error: {str(e)}"
+    
+def create_dataset(
+    platforms: List[str],
+    languages: List[str],
+    domain: str,
+    labels: str,
+    num_samples: int,
+    mistral_models: List[str],
+    ollama_models: List[str],
     temperature: float,
     output_file: str,
     balance_labels: bool,
-    worker_id: int,
-    total_workers: int,
-    total_combinations: int,    # NEW: number of (platform, language) pairs
-) -> Tuple[str, List[str]]:
-    """
-    Worker function to create dataset portion in parallel.
-    Now respects total num_samples across all platforms and languages.
-    """
-    temp_files = []
+    num_workers: int,
+):
+    if not platforms or not languages:
+        return "⚠️ Please select at least one platform and one language"
+
+    models_dict = get_selected_models(mistral_models, ollama_models)
+    if not models_dict:
+        return "⚠️ Please select at least one model"
+
+    if num_workers < 1:
+        num_workers = 1
+
+    results = []
+    all_temp_files = []
+
     try:
-        generator = DatasetGenerator()
-        model = models_dict.get(platform, [""])[0] if models_dict.get(platform) else None
+        with ThreadPoolExecutor(max_workers=num_workers * len(platforms)) as executor:
+            futures = {}
+            worker_id = 0
 
-        # Calculate how many samples this worker should generate in total
-        samples_per_worker = num_samples // total_workers
-        if worker_id == 0:
-            samples_per_worker += num_samples % total_workers
+            for platform in platforms:
+                selected_models = models_dict.get(platform, [])
+                if not selected_models:
+                    continue
 
-        # Distribute samples across languages for this platform
-        samples_per_language = samples_per_worker // len(languages)
-        remainder = samples_per_worker % len(languages)
+                for w in range(num_workers):
+                    future = executor.submit(
+                        create_dataset_worker,
+                        platform=platform,
+                        languages=languages,
+                        domain=domain,
+                        labels=labels,
+                        num_samples=num_samples,
+                        selected_models=selected_models,
+                        temperature=temperature,
+                        output_file=output_file,
+                        balance_labels=balance_labels,
+                        worker_id=worker_id,
+                        total_workers=num_workers * len(platforms),
+                    )
+                    futures[future] = worker_id
+                    worker_id += 1
 
-        for lang_idx, language in enumerate(languages):
-            lang_samples = samples_per_language + (1 if lang_idx < remainder else 0)
-
-            # Further distribute across total combinations if needed for fairness
-            # But for simplicity, we do per-platform language distribution first
-
-            if lang_samples <= 0:
-                continue
-
-            temp_file = output_file.replace(".tsv", f"_{platform}_{language}_w{worker_id}.tsv")
-            
-            result_path = generator.create_dataset(
-                num_samples=lang_samples,                    # <-- Now per language
-                platform=platform,
-                language=language,
-                labels=parse_labels(labels),
-                domain=domain,
-                model=model or None,
-                temperature=temperature,
-                output_file=temp_file,
-                delay=0.8,
-                multilingual=False,      # We handle multi-language at app level
-                balance_labels=balance_labels,
-            )
-            temp_files.append(result_path)
-
-        status = f"✓ Worker {worker_id} ({platform}): Generated {samples_per_worker} samples across {len(languages)} languages"
-        return (status, temp_files)
+            for future in as_completed(futures):
+                status_msg, temp_files = future.result()
+                results.append(status_msg)
+                all_temp_files.extend(temp_files)
 
     except Exception as e:
-        return (f"✗ Worker {worker_id} ({platform}): Error - {str(e)}", temp_files)
+        return f"✗ Fatal error: {str(e)}"
+
+    merge_success, merge_msg = merge_tsv_files(all_temp_files, output_file, models_dict, platforms)
+    results.append(merge_msg)
+
+    summary = "\n".join(results)
+    return f"✅ Dataset creation completed!\n\n{summary}\n\nOutput: {output_file}"
 
 def merge_tsv_files(
     temp_files: List[str],
@@ -211,86 +266,6 @@ def merge_tsv_files(
         return (False, f"Error merging files: {str(e)}")
 
 
-def create_dataset(
-    platforms: List[str],
-    languages: List[str],
-    domain: str,
-    labels: str,
-    num_samples: int,           # TRUE total number of rows in final dataset
-    models_dict: Dict,
-    temperature: float,
-    output_file: str,
-    balance_labels: bool,
-    num_workers: int,
-):
-    """Create dataset with exact total number of samples across all combinations."""
-    if not platforms or not languages:
-        return "⚠️ Please select at least one platform and one language"
-
-    if num_workers < 1:
-        num_workers = 1
-
-    total_combinations = len(platforms) * len(languages)
-    if total_combinations == 0:
-        return "⚠️ Invalid platform/language combination"
-
-    results = []
-    all_temp_files = []
-
-    try:
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = {}
-            worker_id = 0
-
-            for platform in platforms:
-                for w in range(num_workers):
-                    future = executor.submit(
-                        create_dataset_worker,
-                        platform=platform,
-                        languages=languages,
-                        domain=domain,
-                        labels=labels,
-                        num_samples=num_samples,          # Pass total
-                        models_dict=models_dict,
-                        temperature=temperature,
-                        output_file=output_file,
-                        balance_labels=balance_labels,
-                        worker_id=worker_id,
-                        total_workers=num_workers * len(platforms),  # Total actual workers
-                        total_combinations=total_combinations,       # NEW
-                    )
-                    futures[future] = worker_id
-                    worker_id += 1
-
-            for future in as_completed(futures):
-                try:
-                    status_msg, temp_files = future.result()
-                    results.append(status_msg)
-                    all_temp_files.extend(temp_files)
-                except Exception as e:
-                    results.append(f"✗ Worker error: {str(e)}")
-
-    except Exception as e:
-        return f"✗ Fatal error: {str(e)}"
-
-    # Merge
-    merge_success, merge_msg = merge_tsv_files(all_temp_files, output_file, models_dict, platforms)
-    results.append(merge_msg)
-
-    summary = "\n".join(results)
-    status_icon = "✓" if merge_success else "✗"
-    
-    final_count = 0
-    try:
-        if os.path.exists(output_file):
-            final_count = len(pd.read_csv(output_file, sep='\t'))
-    except:
-        pass
-
-    return (f"{status_icon} Dataset creation completed!\n"
-            f"Total rows: {final_count} (target: {num_samples})\n\n"
-            f"{summary}\n\nOutput: {output_file}")
-
 def get_download_file(output_file: str) -> str:
     """
     Prepare file for download.
@@ -319,194 +294,142 @@ def get_download_file(output_file: str) -> str:
         return None
 
 
+# ====================== BUILD INTERFACE ======================
+
 def build_interface() -> gr.Blocks:
     with gr.Blocks(title="GenSet Dataset Generator") as demo:
         gr.Markdown("# GenSet Dataset Generator")
-        gr.Markdown("Generate synthetic datasets using multiple platforms, languages, and parallel workers")
-        
+        gr.Markdown("Generate synthetic datasets with **multiple models per platform**")
+
         with gr.Row():
-            # Left column: Configuration
+            # Left: Configuration
             with gr.Column(scale=1):
-                gr.Markdown("### Platform & Language")
+                gr.Markdown("### Platforms & Languages")
                 platforms = gr.CheckboxGroup(
                     choices=["mistral", "ollama"],
                     value=["mistral"],
                     label="Platforms",
-                    info="Select one or more platforms"
+                    info="Select platforms"
                 )
                 languages = gr.CheckboxGroup(
                     choices=LANGUAGE_CHOICES,
                     value=["english"],
                     label="Languages",
-                    info="Select one or more languages"
+                    info="Select languages"
                 )
-                
-                gr.Markdown("### Models (per Platform)")
-                models_display = gr.JSON(label="Available Models")
-                
-                # Update models display when platforms change
+
+                gr.Markdown("### Models per Platform")
+
+                mistral_models_check = gr.CheckboxGroup(
+                    label="Mistral Models",
+                    info="Select one or more Mistral models",
+                    choices=[],
+                    value=[]
+                )
+                ollama_models_check = gr.CheckboxGroup(
+                    label="Ollama Models",
+                    info="Select one or more Ollama models",
+                    choices=[],
+                    value=[]
+                )
+
+                # Update model checkboxes when platforms change
+                def update_model_checkboxes(selected_platforms):
+                    all_models = get_all_models()
+                    mistral_list = all_models.get("mistral", [])
+                    ollama_list = all_models.get("ollama", [])
+
+                    mistral_visible = "mistral" in selected_platforms
+                    ollama_visible = "ollama" in selected_platforms
+
+                    return (
+                        gr.update(choices=mistral_list, value=mistral_list[:2] if mistral_list else []),
+                        gr.update(choices=ollama_list, value=ollama_list[:1] if ollama_list else []),
+                        gr.update(visible=mistral_visible),
+                        gr.update(visible=ollama_visible)
+                    )
+
                 platforms.change(
-                    fn=get_models_for_platforms,
+                    fn=update_model_checkboxes,
                     inputs=[platforms],
-                    outputs=[models_display]
+                    outputs=[mistral_models_check, ollama_models_check, mistral_models_check, ollama_models_check]
                 )
-                
+
                 gr.Markdown("### Generation Settings")
-                domain = gr.Textbox(
-                    value="general customer reviews",
-                    label="Domain",
-                    info="Domain for generation (e.g., product reviews, social media)"
-                )
-                labels = gr.Textbox(
-                    value="positive,negative",
-                    label="Labels",
-                    info="Comma-separated classification labels"
-                )
-                temperature = gr.Slider(
-                    0.0, 1.0,
-                    value=0.7,
-                    step=0.05,
-                    label="Temperature",
-                    info="Controls randomness in generation (0=deterministic, 1=random)"
-                )
-            
-            # Middle column: Sample generation
+                domain = gr.Textbox(value="general customer reviews", label="Domain")
+                labels = gr.Textbox(value="positive,negative", label="Labels")
+                temperature = gr.Slider(0.0, 1.0, value=0.7, step=0.05, label="Temperature")
+
+            # Middle: Sample + Dataset controls
             with gr.Column(scale=1):
                 gr.Markdown("### Generate Sample")
                 with gr.Group():
-                    sample_output = gr.Textbox(
-                        label="Generated Text",
-                        lines=6,
-                        interactive=False,
-                        show_copy_button=True
-                    )
-                    sample_label = gr.Textbox(
-                        label="Predicted Label",
-                        interactive=False,
-                        show_copy_button=True
-                    )
-                    sample_status = gr.Textbox(
-                        label="Status",
-                        interactive=False
-                    )
-                    generate_sample_btn = gr.Button("🎲 Generate Sample", variant="primary", size="lg")
-                
+                    sample_output = gr.Textbox(label="Generated Text", lines=6, show_copy_button=True)
+                    sample_label = gr.Textbox(label="Label", show_copy_button=True)
+                    sample_status = gr.Textbox(label="Status")
+                    generate_sample_btn = gr.Button("🎲 Generate Sample", variant="primary")
+
                 gr.Markdown("### Dataset Creation")
-                num_samples = gr.Slider(
-                    1, 500,
-                    value=10,
-                    step=1,
-                    label="Number of Samples",
-                    info="Samples per platform-language combination"
-                )
-                num_workers = gr.Slider(
-                    1, 16,
-                    value=2,
-                    step=1,
-                    label="Number of Workers",
-                    info="Parallel workers for faster generation"
-                )
-                balance_labels = gr.Checkbox(
-                    value=False,
-                    label="⚖️ Balance Labels",
-                    info="Ensure equal distribution across labels"
-                )
-                
-            # Right column: Dataset creation
+                num_samples = gr.Slider(1, 1000, value=50, step=1, label="Number of Samples (Total)")
+                num_workers = gr.Slider(1, 16, value=2, step=1, label="Number of Workers")
+                balance_labels = gr.Checkbox(value=False, label="Balance Labels")
+
+            # Right: Output
             with gr.Column(scale=1):
                 gr.Markdown("### Output")
                 output_file = gr.Textbox(
                     value=str(Config.normalize_output_path(Config.DEFAULT_OUTPUT_FILE)),
-                    label="Output File",
-                    info="Path for the generated dataset (TSV format)"
+                    label="Output File (.tsv)"
                 )
-                
-                with gr.Group():
-                    create_dataset_btn = gr.Button("📊 Create Dataset", variant="primary", size="lg")
-                    dataset_status = gr.Textbox(
-                        label="Creation Status",
-                        interactive=False,
-                        lines=10,
-                        show_copy_button=True
-                    )
-                
+
+                create_dataset_btn = gr.Button("📊 Create Dataset", variant="primary", size="lg")
+                dataset_status = gr.Textbox(label="Status", lines=12, show_copy_button=True)
+
                 gr.Markdown("### Download")
-                with gr.Group():
-                    download_btn = gr.Button("⬇️ Download Dataset", variant="secondary", size="lg")
-                    download_file = gr.File(
-                        label="Download File",
-                        interactive=False
-                    )
-                    download_status = gr.Textbox(
-                        label="Download Status",
-                        interactive=False
-                    )
-        
-        # Event handlers
+                download_btn = gr.Button("⬇️ Download Dataset", variant="secondary")
+                download_file = gr.File(label="Download File")
+                download_status = gr.Textbox(label="Download Status")
+
+        # Event Handlers
         generate_sample_btn.click(
             fn=create_sample,
-            inputs=[platforms, languages, domain, labels, models_display, temperature],
-            outputs=[sample_output, sample_label, sample_status],
+            inputs=[platforms, languages, domain, labels, mistral_models_check, ollama_models_check, temperature],
+            outputs=[sample_output, sample_label, sample_status]
         )
-        
+
         create_dataset_btn.click(
             fn=create_dataset,
             inputs=[
-                platforms,
-                languages,
-                domain,
-                labels,
-                num_samples,
-                models_display,
-                temperature,
-                output_file,
-                balance_labels,
-                num_workers
+                platforms, languages, domain, labels, num_samples,
+                mistral_models_check, ollama_models_check,
+                temperature, output_file, balance_labels, num_workers
             ],
-            outputs=[dataset_status],
+            outputs=[dataset_status]
         )
-        
+
         download_btn.click(
             fn=get_download_file,
             inputs=[output_file],
-            outputs=[download_file],
+            outputs=[download_file]
         ).then(
-            fn=lambda f: "✓ File ready for download!" if f else "✗ File not found. Please create a dataset first.",
+            lambda f: "✓ File ready!" if f else "✗ File not found. Create dataset first.",
             inputs=[download_file],
             outputs=[download_status]
         )
-        
-        # Initialize models on load
+
+        # Initial load
         demo.load(
-            fn=get_models_for_platforms,
+            fn=update_model_checkboxes,
             inputs=[platforms],
-            outputs=[models_display]
+            outputs=[mistral_models_check, ollama_models_check, mistral_models_check, ollama_models_check]
         )
-    
+
     return demo
 
-
-def main(share: bool = False, debug: bool = False) -> None:
-    demo = build_interface()
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=share, debug=debug)
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="GenSet Gradio Web Interface"
-    )
-    
-    parser.add_argument(
-        "--share", 
-        action="store_true",
-        help="Enable public sharing link (Gradio share)"
-    )
-
-    parser.add_argument(
-        "--debug", 
-        action="store_true",
-        help="Enable debug mode with verbose logging"
-    )
-
+    parser = argparse.ArgumentParser(description="GenSet Gradio Web Interface")
+    parser.add_argument("--share", action="store_true")
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    main(share=args.share, debug=args.debug)
+    demo = build_interface()
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=args.share, debug=args.debug)
