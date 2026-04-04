@@ -111,8 +111,9 @@ class ModelsManager:
         
         # Fallback to popular/known Ollama models
         default_models = [
-            "gemma3:4b-cloud",
+            # "gemma3:4b-cloud",
             "gemma3:12b-cloud",
+            "gpt-oss:20b-cloud",
         ]
         ModelsManager._ollama_models_cache = default_models
         return default_models
