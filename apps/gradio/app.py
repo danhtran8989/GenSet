@@ -191,7 +191,7 @@ def build_interface() -> gr.Blocks:
                 )
                 
                 gr.Markdown("### Models (per Platform)")
-                models_display = gr.JSON(label="Available Models", interactive=False)
+                models_display = gr.JSON(label="Available Models")
                 
                 # Update models display when platforms change
                 platforms.change(
