@@ -2,9 +2,10 @@ import sys
 from pathlib import Path
 import argparse
 import os
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT_DIR / "src"
@@ -76,8 +77,14 @@ def create_dataset_worker(
     balance_labels: bool,
     worker_id: int,
     total_workers: int,
-) -> str:
-    """Worker function to create dataset portion in parallel."""
+) -> Tuple[str, List[str]]:
+    """
+    Worker function to create dataset portion in parallel.
+    
+    Returns:
+        Tuple of (worker_status_message, list_of_temp_file_paths)
+    """
+    temp_files = []
     try:
         generator = DatasetGenerator()
         model = models_dict.get(platform, [""])[0] if models_dict.get(platform) else None
@@ -89,6 +96,7 @@ def create_dataset_worker(
         
         # For each language, generate samples
         for language in languages:
+            temp_file = output_file.replace(".tsv", f"_{platform}_{language}_w{worker_id}.tsv")
             result_path = generator.create_dataset(
                 num_samples=samples_per_worker,
                 platform=platform,
@@ -97,15 +105,99 @@ def create_dataset_worker(
                 domain=domain,
                 model=model or None,
                 temperature=temperature,
-                output_file=output_file.replace(".tsv", f"_{platform}_{language}_w{worker_id}.tsv"),
+                output_file=temp_file,
                 delay=0.8,
                 multilingual=False,
                 balance_labels=balance_labels,
             )
+            temp_files.append(result_path)
         
-        return f"✓ Worker {worker_id} ({platform}): Created {samples_per_worker} samples"
+        status = f"✓ Worker {worker_id} ({platform}): Created {samples_per_worker} samples"
+        return (status, temp_files)
     except Exception as e:
-        return f"✗ Worker {worker_id} ({platform}): Error - {str(e)}"
+        return (f"✗ Worker {worker_id} ({platform}): Error - {str(e)}", temp_files)
+
+
+def merge_tsv_files(
+    temp_files: List[str],
+    output_file: str,
+    models_dict: Dict,
+    platforms: List[str],
+) -> Tuple[bool, str]:
+    """
+    Merge multiple TSV files into one and add the 'created_by_model' column.
+    
+    Args:
+        temp_files: List of temporary TSV file paths
+        output_file: Final merged output file path
+        models_dict: Dictionary of available models per platform
+        platforms: List of platforms used
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        all_dfs = []
+        
+        for temp_file in temp_files:
+            if os.path.exists(temp_file) and os.path.isfile(temp_file):
+                try:
+                    # Read the TSV file
+                    df = pd.read_csv(temp_file, sep='\t')
+                    
+                    # Extract model info from filename
+                    filename = os.path.basename(temp_file)
+                    # Format: dataset_{platform}_{language}_w{worker_id}.tsv
+                    parts = filename.replace('.tsv', '').split('_')
+                    
+                    model_name = None
+                    for platform in platforms:
+                        if platform in filename:
+                            model_list = models_dict.get(platform, [])
+                            if model_list:
+                                model_name = f"{platform}/{model_list[0]}"
+                            break
+                    
+                    # Add created_by_model column
+                    if model_name:
+                        df['created_by_model'] = model_name
+                    else:
+                        df['created_by_model'] = 'unknown'
+                    
+                    all_dfs.append(df)
+                except Exception as e:
+                    return (False, f"Error reading {temp_file}: {str(e)}")
+        
+        if not all_dfs:
+            return (False, "No valid TSV files to merge")
+        
+        # Merge all dataframes
+        merged_df = pd.concat(all_dfs, ignore_index=True)
+        
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Save merged dataset
+        merged_df.to_csv(output_file, sep='\t', index=False)
+        
+        # Remove temporary files
+        removed_count = 0
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    removed_count += 1
+            except Exception as e:
+                print(f"Warning: Could not remove {temp_file}: {e}")
+        
+        rows_merged = len(merged_df)
+        message = f"✓ Merged {len(all_dfs)} files ({rows_merged} rows) into {os.path.basename(output_file)}\n✓ Removed {removed_count} temporary files\n✓ Added 'created_by_model' column"
+        return (True, message)
+        
+    except Exception as e:
+        return (False, f"Error merging files: {str(e)}")
 
 
 def create_dataset(
@@ -120,7 +212,7 @@ def create_dataset(
     balance_labels: bool,
     num_workers: int,
 ):
-    """Create dataset using multiple workers and platforms."""
+    """Create dataset using multiple workers and platforms, then merge and cleanup."""
     if not platforms or not languages:
         return "⚠️ Please select at least one platform and language"
     
@@ -128,6 +220,8 @@ def create_dataset(
         num_workers = 1
     
     results = []
+    all_temp_files = []
+    
     try:
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             futures = {}
@@ -156,16 +250,22 @@ def create_dataset(
             # Collect results as they complete
             for future in as_completed(futures):
                 try:
-                    result = future.result()
-                    results.append(result)
+                    status_msg, temp_files = future.result()
+                    results.append(status_msg)
+                    all_temp_files.extend(temp_files)
                 except Exception as e:
                     results.append(f"✗ Worker error: {str(e)}")
     
     except Exception as e:
         return f"✗ Fatal error: {str(e)}"
     
+    # Merge temporary files
+    merge_success, merge_msg = merge_tsv_files(all_temp_files, output_file, models_dict, platforms)
+    results.append(merge_msg)
+    
     summary = "\n".join(results)
-    return f"Dataset creation completed!\n\n{summary}\nOutput: {output_file}"
+    status_icon = "✓" if merge_success else "✗"
+    return f"{status_icon} Dataset creation completed!\n\n{summary}\n\nOutput: {output_file}"
 
 
 def get_download_file(output_file: str) -> str:
