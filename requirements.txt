@@ -1,0 +1,6 @@
+python-dotenv
+requests
+tqdm
+rich
+pandas
+gradio
