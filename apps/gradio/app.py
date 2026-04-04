@@ -116,6 +116,66 @@ def create_sample(
     except Exception as e:
         return "", "", f"✗ Error: {str(e)}"
     
+def create_dataset_worker(
+    platform: str,
+    languages: List[str],
+    domain: str,
+    labels: str,
+    num_samples: int,
+    selected_models: List[str],      # Changed: now list of models for this platform
+    temperature: float,
+    output_file: str,
+    balance_labels: bool,
+    worker_id: int,
+    total_workers: int,
+):
+    temp_files = []
+    try:
+        generator = DatasetGenerator()
+
+        # Distribute total samples for this worker across languages and models
+        total_items = len(languages) * len(selected_models) or 1
+        samples_per_worker = num_samples // total_workers
+        if worker_id == 0:
+            samples_per_worker += num_samples % total_workers
+
+        samples_per_item = max(1, samples_per_worker // total_items)
+
+        item_idx = 0
+        for language in languages:
+            for model in selected_models:
+                item_samples = samples_per_item
+                if item_idx < (samples_per_worker % total_items):
+                    item_samples += 1
+                item_idx += 1
+
+                if item_samples <= 0:
+                    continue
+
+                temp_file = output_file.replace(".tsv", f"_{platform}_{language}_{model.replace('/', '_')}_w{worker_id}.tsv")
+
+                result_path = generator.create_dataset(
+                    num_samples=item_samples,
+                    platform=platform,
+                    language=language,
+                    labels=parse_labels(labels),
+                    domain=domain,
+                    model=model,
+                    temperature=temperature,
+                    output_file=temp_file,
+                    delay=0.8,
+                    multilingual=False,
+                    balance_labels=balance_labels,
+                )
+                temp_files.append(result_path)
+
+        status = f"✓ Worker {worker_id} ({platform}): {samples_per_worker} samples using {len(selected_models)} model(s)"
+        return status, temp_files
+
+    except Exception as e:
+        return f"✗ Worker {worker_id} ({platform}): Error - {str(e)}", temp_files
+
+
 def create_dataset(
     platforms: List[str],
     languages: List[str],
