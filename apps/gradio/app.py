@@ -41,12 +41,8 @@ def create_sample(platforms, languages, domain, labels, mistral_models, ollama_m
     try:
         generator = DatasetGenerator()
         ex = generator.generate_example(
-            platform=platform,
-            language=language,
-            labels=parse_labels(labels),
-            domain=domain,
-            model=model,
-            temperature=temperature
+            platform=platform, language=language, labels=parse_labels(labels),
+            domain=domain, model=model, temperature=temperature
         )
         return ex.get("text", ""), ex.get("label", ""), f"✓ {platform}/{model} ({language})"
     except Exception as e:
@@ -62,9 +58,9 @@ def create_dataset(
     ollama_models: List[str],
     ollama_model_weight: float,
     mistral_api_keys: List[str],
-    mistral_api_weight: float,      # single total weight
+    mistral_api_weight: float,
     ollama_api_keys: List[str],
-    ollama_api_weight: float,       # single total weight
+    ollama_api_weight: float,
     domain: str,
     labels: str,
     num_samples: int,
@@ -77,7 +73,6 @@ def create_dataset(
 
     lang_weights = [float(lang_weight)] * len(languages)
 
-    # Platform models + weights
     platform_config = {}
     if "mistral" in platforms and mistral_models:
         platform_config["mistral"] = (mistral_models, [float(mistral_model_weight)] * len(mistral_models))
@@ -87,7 +82,6 @@ def create_dataset(
     if not platform_config:
         return "⚠️ Select at least one model"
 
-    # API Keys + single weight per platform (distributed equally)
     api_config = {}
     if "mistral" in platforms and mistral_api_keys:
         api_config["mistral"] = (mistral_api_keys, [float(mistral_api_weight)] * len(mistral_api_keys))
@@ -105,8 +99,7 @@ def create_dataset(
         api_tasks = []
 
         for platform in platforms:
-            if platform not in api_config:
-                continue
+            if platform not in api_config: continue
             key_names, key_weights = api_config[platform]
             norm_key_weights = normalize_weights(key_weights)
             for i, (key_name, weight) in enumerate(zip(key_names, norm_key_weights)):
@@ -117,8 +110,7 @@ def create_dataset(
             samples_for_this_key = max(1, int(num_samples * (weight / total_api_weight) + 0.5))
 
             models, model_w = platform_config.get(platform, ([], []))
-            if not models:
-                continue
+            if not models: continue
 
             norm_model = normalize_weights(model_w)
             norm_lang = normalize_weights(lang_weights)
@@ -133,8 +125,7 @@ def create_dataset(
                     combo_samples_list.append((lang, model, combo_samples))
 
             for lang, model, combo_samples in combo_samples_list:
-                if combo_samples <= 0:
-                    continue
+                if combo_samples <= 0: continue
                 safe_model = model.replace("/", "_").replace(":", "_").replace(".", "_")
                 temp_file = output_file.replace(".tsv", f"_{platform}_{lang}_{safe_model}_k{api_idx}.tsv")
 
@@ -190,7 +181,6 @@ def merge_tsv_files(temp_info: List[Tuple], output_file: str) -> Tuple[bool, str
 def build_interface():
     with gr.Blocks(title="GenSet - Dataset Generator") as demo:
         gr.Markdown("# GenSet Dataset Generator")
-        gr.Markdown("Generate balanced datasets using multiple API keys and models")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -201,22 +191,22 @@ def build_interface():
                 languages = gr.CheckboxGroup(LANGUAGE_CHOICES, value=["english"], label="Languages")
                 lang_weight = gr.Slider(0, 100, 50, step=1, label="Language Weight (%)")
 
-                gr.Markdown("### Mistral")
-                mistral_models = gr.CheckboxGroup(label="Mistral Models", choices=[], value=[])
+                gr.Markdown("### Mistral Models")
+                mistral_models = gr.CheckboxGroup(choices=[], value=[], label="Mistral Models")
                 mistral_model_weight = gr.Slider(0, 100, 50, step=1, label="Mistral Models Weight (%)")
 
-                gr.Markdown("### Ollama")
-                ollama_models = gr.CheckboxGroup(label="Ollama Models", choices=[], value=[])
+                gr.Markdown("### Ollama Models")
+                ollama_models = gr.CheckboxGroup(choices=[], value=[], label="Ollama Models")
                 ollama_model_weight = gr.Slider(0, 100, 50, step=1, label="Ollama Models Weight (%)")
 
             with gr.Column(scale=1):
                 gr.Markdown("### Mistral API Keys")
-                mistral_api_select = gr.CheckboxGroup(label="Select Mistral API Keys", choices=[], value=[])
-                mistral_api_weight = gr.Slider(0, 100, 50, step=1, label="Total Mistral API Keys Weight (%)")
+                mistral_api_select = gr.CheckboxGroup(choices=[], value=[], label="Select Mistral API Keys")
+                mistral_api_weight = gr.Slider(0, 100, 50, step=1, label="Total Mistral API Weight (%)")
 
                 gr.Markdown("### Ollama API Keys")
-                ollama_api_select = gr.CheckboxGroup(label="Select Ollama API Keys", choices=[], value=[])
-                ollama_api_weight = gr.Slider(0, 100, 50, step=1, label="Total Ollama API Keys Weight (%)")
+                ollama_api_select = gr.CheckboxGroup(choices=[], value=[], label="Select Ollama API Keys")
+                ollama_api_weight = gr.Slider(0, 100, 50, step=1, label="Total Ollama API Weight (%)")
 
                 gr.Markdown("### Generation")
                 domain = gr.Textbox("general customer reviews", label="Domain")
@@ -228,16 +218,12 @@ def build_interface():
             with gr.Column(scale=1):
                 output_file = gr.Textbox(
                     value=str(Config.normalize_output_path(Config.DEFAULT_OUTPUT_FILE)),
-                    label="Output File"
+                    label="Output File (.tsv)"
                 )
                 create_btn = gr.Button("📊 Create Dataset", variant="primary", size="lg")
                 status_box = gr.Textbox(label="Status", lines=15, show_copy_button=True)
 
-                gr.Markdown("### Download")
-                dl_btn = gr.Button("⬇️ Download Dataset")
-                dl_file = gr.File()
-
-        # Update models
+        # Update models when platform changes
         def update_models(selected_platforms):
             all_m = get_all_models()
             m_models = all_m.get("mistral", ["mistral-small-latest"])
@@ -249,7 +235,7 @@ def build_interface():
 
         platforms.change(update_models, platforms, [mistral_models, ollama_models])
 
-        # API key choices from .env
+        # Set API key choices safely (list of strings only)
         mistral_api_choices = [f"mistral_{i+1}" for i in range(len(Config.MISTRAL_API_KEYS))]
         ollama_api_choices = [f"ollama_{i+1}" for i in range(len(Config.OLLAMA_API_KEYS))]
 
@@ -263,15 +249,15 @@ def build_interface():
                 platforms, languages, lang_weight,
                 mistral_models, mistral_model_weight,
                 ollama_models, ollama_model_weight,
-                mistral_api_select, mistral_api_weight,   # single weight
-                ollama_api_select, ollama_api_weight,     # single weight
+                mistral_api_select, mistral_api_weight,
+                ollama_api_select, ollama_api_weight,
                 domain, labels, num_samples, temperature,
                 output_file, balance_labels
             ],
             outputs=status_box
         )
 
-        # Sample
+        # Sample button
         gr.Button("🎲 Generate Sample").click(
             create_sample,
             inputs=[platforms, languages, domain, labels, mistral_models, ollama_models, temperature],
@@ -294,9 +280,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     demo = build_interface()
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=args.share,
-        debug=args.debug
-    )
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=args.share, debug=args.debug)
