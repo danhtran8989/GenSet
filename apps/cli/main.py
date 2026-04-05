@@ -120,3 +120,12 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+    # Quick test
+    # python gen_set.py --num-samples 50 --domain "food delivery reviews"
+
+    # # Vietnamese product reviews with 3 labels
+    # python gen_set.py --language vietnamese --labels "tốt,trung bình,kém" --num-samples 400 --output viet_reviews.tsv
+
+    # # Balanced multilingual dataset
+    # python gen_set.py --multilingual --balance-labels --num-samples 300 --domain "mobile phone reviews"

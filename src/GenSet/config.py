@@ -25,8 +25,8 @@ class Config:
     MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
     OLLAMA_BASE_URL = "https://ollama.com"
 
-    DEFAULT_MISTRAL_MODEL = "mistral-large-latest"
-    DEFAULT_OLLAMA_MODEL = "llama3.2"
+    DEFAULT_MISTRAL_MODEL = "mistral-small-latest"
+    DEFAULT_OLLAMA_MODEL = "gemma3:4b-cloud"
 
     DEFAULT_OUTPUT_DIR = "output"
     DEFAULT_OUTPUT_FILE = "dataset.tsv"
