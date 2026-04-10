@@ -1,99 +1,85 @@
 """
-Language-specific prompts for dataset generation.
-Supports Vietnamese and English with customizable system and user prompts.
+Language-specific system and user prompts for dataset generation.
+Supports English and Vietnamese with easy extensibility.
+
+Prompt templates are now stored in configs/promps-configs.yml
+so they can be edited without touching Python code.
 """
 
-SYSTEM_PROMPTS = {
-    "english": """You are a helpful assistant that generates realistic text examples for a classification dataset.
-Always respond in valid JSON format with exactly two fields: \"text\" and \"label\".
-The \"text\" should be natural, diverse, and realistic.
-The \"label\" must be one of the provided categories.
-Do not add any extra explanation or markdown.""",
+import yaml
+from pathlib import Path
+from typing import List, Dict
 
-    "vietnamese": """Bạn là một trợ lý hỗ trợ tạo ra các ví dụ văn bản thực tế cho bộ dữ liệu phân loại.
-Luôn trả lời dưới định dạng JSON hợp lệ với chính xác hai trường: \"text\" và \"label\".
-\"text\" nên tự nhiên, đa dạng và thực tế.
-\"label\" phải là một trong các danh mục được cung cấp.
-Không thêm bất kỳ giải thích hay markdown nào."""
-}
+# ====================== LOAD CONFIG ======================
+def _load_config() -> Dict:
+    """Load prompts from YAML config (relative to project root)."""
+    # src/GenSet/prompts.py → parents[2] = project root
+    config_path = Path(__file__).resolve().parents[2] / "configs" / "promps-configs.yml"
 
-USER_PROMPTS = {
-    "english": {
-        "template": """Generate one realistic text example for {labels} classification in the domain of \"{domain}\".
-The text should be {min_sentences}-{max_sentences} sentences long.
-Respond ONLY with a JSON object like this:
-{{
-\"text\": \"Your generated text here.\",
-\"label\": \"{first_label}\"
-}}"""
-    },
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"❌ Config file not found: {config_path}\n"
+            "Please create configs/promps-configs.yml with the prompt templates."
+        )
 
-    "vietnamese": {
-        "template": """Tạo một ví dụ văn bản thực tế cho bài toán phân loại {labels} trong lĩnh vực \"{domain}\".
-Văn bản nên dài {min_sentences}-{max_sentences} câu.
-Chỉ trả lời bằng một đối tượng JSON như thế này:
-{{
-\"text\": \"Văn bản được tạo ra của bạn ở đây.\",
-\"label\": \"{first_label}\"
-}}"""
-    }
-}
-
-DOMAIN_TRANSLATIONS = {
-    "english": {
-        "general customer reviews": "general customer reviews",
-        "product feedback": "product feedback",
-        "social media": "social media",
-        "news articles": "news articles",
-        "emails": "emails",
-        "tweets": "tweets",
-        "restaurant reviews": "restaurant reviews",
-        "movie reviews": "movie reviews",
-    },
-    "vietnamese": {
-        "general customer reviews": "đánh giá khách hàng chung",
-        "product feedback": "phản hồi sản phẩm",
-        "social media": "mạng xã hội",
-        "news articles": "bài báo tin tức",
-        "emails": "emails",
-        "tweets": "tweets",
-        "restaurant reviews": "đánh giá nhà hàng",
-        "movie reviews": "đánh giá phim ảnh",
-    }
-}
-
-LANGUAGE_CHOICES = ["english", "vietnamese"]
-LANGUAGE_DISPLAY = {
-    "english": "🇬🇧 English",
-    "vietnamese": "🇻🇳 Tiếng Việt"
-}
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
+CONFIG = _load_config()
+
+# ====================== PROMPTS FROM YAML ======================
+SYSTEM_PROMPTS: Dict[str, str] = CONFIG.get("system_prompts", {})
+USER_PROMPTS: Dict[str, Dict] = CONFIG.get("user_prompts", {})
+DOMAIN_TRANSLATIONS: Dict[str, Dict[str, str]] = CONFIG.get("domain_translations", {})
+
+LANGUAGE_CHOICES: List[str] = CONFIG.get("language_choices", ["english", "vietnamese"])
+LANGUAGE_DISPLAY: Dict[str, str] = CONFIG.get("language_display", {})
+
+
+# ====================== PUBLIC API ======================
 def get_system_prompt(language: str = "english") -> str:
+    """Return the system prompt for the given language."""
     language = language.lower()
-    return SYSTEM_PROMPTS.get(language, SYSTEM_PROMPTS["english"])
+    return SYSTEM_PROMPTS.get(language, SYSTEM_PROMPTS.get("english", ""))
 
 
 def get_user_prompt(
     language: str = "english",
-    labels: list = None,
+    labels: List[str] = None,
     domain: str = "general customer reviews",
     min_sentences: int = 1,
     max_sentences: int = 3,
 ) -> str:
-    if labels is None:
+    """Return the formatted user prompt."""
+    if labels is None or not labels:
         labels = ["positive", "negative"]
 
     language = language.lower()
-    template = USER_PROMPTS.get(language, USER_PROMPTS["english"])["template"]
-    domain_translated = DOMAIN_TRANSLATIONS.get(language, {}).get(domain, domain)
+    template = USER_PROMPTS.get(language, USER_PROMPTS.get("english", {})).get("template", "")
+
+    # Get translated domain if available
+    domain_trans = DOMAIN_TRANSLATIONS.get(language, {}).get(domain, domain)
+
     labels_str = "/".join(labels)
-    first_label = labels[0] if labels else "positive"
+    example_label = labels[0]  # Use first label as example in prompt
 
     return template.format(
         labels=labels_str,
-        domain=domain_translated,
+        domain=domain_trans,
         min_sentences=min_sentences,
         max_sentences=max_sentences,
-        first_label=first_label,
+        example_label=example_label
     )
+
+
+# For backward compatibility and CLI
+__all__ = [
+    "get_system_prompt",
+    "get_user_prompt",
+    "LANGUAGE_CHOICES",
+    "LANGUAGE_DISPLAY",
+    "DOMAIN_TRANSLATIONS",
+    "SYSTEM_PROMPTS",
+    "USER_PROMPTS",
+]

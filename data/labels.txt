@@ -1,0 +1,12 @@
+guide_symptoms
+guide_department
+guide_first_aid
+get_doctor
+get_patient_admin
+get_appointment
+explain_procedure
+guide_insurance
+guide_navigation
+explain_medical_education
+explain_document
+guide_booking

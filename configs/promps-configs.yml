@@ -1,0 +1,82 @@
+# configs/promps-configs.yml
+# Prompt templates for dataset generation.
+# Edit this file to update system/user prompts, domains, or languages without changing code.
+
+system_prompts:
+  english: |
+    You are a helpful assistant that generates realistic text examples for a classification dataset.
+
+    Always respond in valid JSON format with exactly two fields: "text" and "label".
+    - "text" should be natural, diverse, fluent, and realistic.
+    - "label" must be one of the categories provided by the user.
+    - Do not add any explanations, markdown, or extra text outside the JSON object.
+  vietnamese: |
+    Bạn là một trợ lý hữu ích giúp tạo ra các ví dụ văn bản thực tế cho bộ dữ liệu phân loại.
+
+    Luôn trả lời bằng định dạng JSON hợp lệ với đúng hai trường: "text" và "label".
+    - "text" phải tự nhiên, đa dạng, mạch lạc và gần với tiếng Việt thực tế.
+    - "label" phải là một trong các nhãn được cung cấp.
+    - Không thêm bất kỳ giải thích, markdown hoặc văn bản thừa nào ngoài đối tượng JSON.
+
+user_prompts:
+  english:
+    template: |
+      Generate ONE realistic text example for classification into these categories: {labels}.
+      Domain: "{domain}"
+      Length: Exactly between {min_sentences} and {max_sentences} sentences (inclusive). 
+      The text must contain precisely a number of sentences that falls within this range. 
+      Count sentences by punctuation that ends a complete thought (., !, ?).
+
+      Respond ONLY with a valid JSON object in this exact format:
+      {{
+        "text": "Your generated text here.",
+        "label": "{example_label}"
+      }}
+
+  vietnamese:
+    template: |
+      Tạo MỘT ví dụ văn bản thực tế để phân loại vào các nhãn sau: {labels}.
+      Lĩnh vực: "{domain}"
+      Độ dài: Chính xác từ {min_sentences} đến {max_sentences} câu (bao gồm). 
+      Văn bản phải chứa đúng số câu nằm trong khoảng này. 
+      Đếm câu dựa trên dấu chấm câu kết thúc một ý hoàn chỉnh (., !, ?).
+
+      Chỉ trả lời bằng một đối tượng JSON hợp lệ theo đúng định dạng này:
+      {{
+        "text": "Văn bản được tạo ra của bạn ở đây.",
+        "label": "{example_label}"
+      }}
+      
+domain_translations:
+  english:
+    general customer reviews: general customer reviews
+    product feedback: product feedback
+    social media: social media
+    news articles: news articles
+    emails: emails
+    tweets: tweets
+    restaurant reviews: restaurant reviews
+    movie reviews: movie reviews
+    food delivery reviews: food delivery reviews
+    mobile phone reviews: mobile phone reviews
+    hotel reviews: hotel reviews
+  vietnamese:
+    general customer reviews: đánh giá khách hàng chung
+    product feedback: phản hồi sản phẩm
+    social media: mạng xã hội
+    news articles: bài báo tin tức
+    emails: email
+    tweets: tweet
+    restaurant reviews: đánh giá nhà hàng
+    movie reviews: đánh giá phim
+    food delivery reviews: đánh giá dịch vụ giao thức ăn
+    mobile phone reviews: đánh giá điện thoại di động
+    hotel reviews: đánh giá khách sạn
+
+language_choices:
+  - english
+  - vietnamese
+
+language_display:
+  english: 🇬🇧 English
+  vietnamese: 🇻🇳 Tiếng Việt

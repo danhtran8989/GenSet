@@ -34,7 +34,7 @@ class ModelsManager:
                 api_key = Config.MISTRAL_API_KEYS[0]
                 headers = {
                     "Authorization": f"Bearer {api_key}",
-                    "User-Agent": "GenSet/1.0"
+                    # "User-Agent": "GenSet/1.0"
                 }
                 
                 response = requests.get(

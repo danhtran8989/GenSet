@@ -1,6 +1,24 @@
-python-dotenv
-requests
-tqdm
-rich
-pandas
-gradio
+# Core Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# API & Data Handling
+pydantic>=2.8.0
+python-multipart>=0.0.9
+
+# Environment & Configuration
+python-dotenv>=1.0.1
+
+# Rich console output (used in GenSet and CLI)
+rich>=13.7.0
+
+# HTTP Client (used inside GenSet)
+requests>=2.32.0
+
+# Optional: Better async support (recommended)
+httpx>=0.27.0
+
+# Development & Debugging
+black>=24.8.0
+isort>=5.13.0
+flake8>=7.1.0

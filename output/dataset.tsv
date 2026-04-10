@@ -1,0 +1,39 @@
+text	label
+Để trở thành một bác sĩ đa khoa, bạn cần hoàn thành 6 năm đào tạo chính quy tại đại học y và trải qua giai đoạn thực tập lâm sàng nghiêm ngặt tại bệnh viện.	explain_medical_education
+Để trở thành một điều dưỡng chuyên khoa hồi sức cấp cứu, bạn cần hoàn thành chương trình cử nhân điều dưỡng và sau đó theo học khóa đào tạo chứng chỉ chuyên sâu về chăm sóc bệnh nhân nặng trong 6 tháng.	explain_medical_education
+Chào bác sĩ, bạn có thể giải thích giúp tôi quy trình đào tạo để trở thành một bác sĩ chuyên khoa nội trong hệ thống y tế hiện nay không?	explain_medical_education
+Cho mình hỏi quy trình đào tạo bác sĩ chuyên khoa trong hệ thống y tế Việt Nam hiện nay diễn ra như thế nào và mất bao nhiêu năm để hoàn thành?	explain_medical_education
+Tôi muốn đặt lịch khám tổng quát với bác sĩ chuyên khoa nội vào sáng thứ Hai tuần tới. Tôi cần làm thủ tục đăng ký trực tuyến như thế nào vậy?	guide_booking
+Chào bác sĩ, tôi muốn đặt lịch khám tổng quát vào sáng thứ Bảy tuần này. Tôi cần làm những thủ tục gì để đăng ký hẹn trước qua ứng dụng vậy?	guide_booking
+Em bị sốt cao 38,5 độ trong 2 ngày rồi, không biết nên đến khám ở bệnh viện nào hay đặt lịch trực tuyến thế nào ạ?	guide_booking
+Tôi muốn đặt lịch khám bác sĩ chuyên khoa tim mạch vào tuần tới, liệu có thể hướng dẫn tôi cách đặt lịch online được không ạ?	guide_booking
+Tôi muốn đặt lịch khám cho bác sĩ nội khoa vào tuần sau, ưu tiên buổi sáng nếu có thể. Làm ơn hướng dẫn tôi cách đặt lịch trực tuyến hoặc số điện thoại để liên hệ nhé.	guide_booking
+Tôi muốn đặt lịch khám lại cho bệnh nhân Nguyễn Văn A, mã bệnh nhân 123456. Xin vui lòng cho tôi biết khung giờ còn trống phù hợp với bác sĩ Trần Thị B.	get_patient_admin
+Chào bạn, tôi muốn đặt lịch khám cho mẹ tôi nhưng không biết làm sao để kết nối với nhân viên quản lý bệnh viện để hỗ trợ thủ tục hành chính?	guide_booking
+Tôi muốn đặt lịch khám cho mẹ, bạn có thể cho tôi biết làm sao để liên hệ với quản trị viên phòng khám để hỗ trợ đăng ký nhanh không?	get_patient_admin
+Tôi muốn đặt lịch khám cho mẹ tôi vào sáng mai, tôi cần cung cấp những thông tin gì để quản trị viên nhập hồ sơ bệnh nhân ạ?	get_patient_admin
+Tôi muốn đặt lịch khám cho mẹ, bạn hướng dẫn tôi các bước đăng ký trên ứng dụng này với?	guide_booking
+Chào bạn, mình muốn đặt lịch khám cho bố. Cho mình hỏi làm sao để cung cấp thông tin hành chính của bệnh nhân cho bệnh viện?	guide_booking
+Chào bạn, tôi muốn đặt lịch khám cho bố tôi. Bạn vui lòng hướng dẫn tôi cách cung cấp thông tin hành chính của bệnh nhân để làm thủ tục đăng ký nhé.	get_patient_admin
+Tôi cần kiểm tra thông tin hồ sơ bệnh nhân của bệnh nhân Nguyễn Văn A, xin vui lòng cho tôi biết cách thực hiện.	get_patient_admin
+Tôi muốn xem thông tin đăng ký của bệnh nhân, bao gồm cả lịch sử khám bệnh và hồ sơ bệnh án. Xin vui lòng hướng dẫn tôi cách truy cập vào chức năng này để làm quản lý.	guide_booking
+Tôi cần tra cứu thông tin về hồ sơ bệnh nhân để phục vụ công tác quản lý.	guide_booking
+Tôi cần tra cứu thông tin hồ sơ bệnh nhân để thực hiện công tác quản lý. Xin vui lòng cho tôi biết quy trình và các bước cần thiết.	get_patient_admin
+Tôi cần tra cứu thông tin về hồ sơ bệnh nhân để xem lại lịch sử điều trị.	get_patient_admin
+Tôi cần tra cứu thông tin về hồ sơ bệnh nhân để phục vụ công tác quản lý.	guide_booking
+Tôi muốn tìm cách đổi lịch hẹn khám của tôi, có thể làm như thế nào?	guide_booking
+Tôi muốn kiểm tra lịch hẹn khám của mình và thay đổi giờ.	get_patient_admin
+Tôi cần tìm thông tin về cách tra cứu hồ sơ bệnh nhân để phục vụ công tác quản lý.	guide_booking
+Tôi muốn hỏi về cách thức đặt lịch hẹn khám bệnh cho bệnh nhân.	get_patient_admin
+Tôi muốn tìm hiểu cách thay đổi lịch hẹn khám của mình, có thể làm theo hướng dẫn được không?	guide_booking
+Tôi cần tìm cách truy cập hồ sơ bệnh nhân để kiểm tra thông tin cho công tác hành chính.	get_patient_admin
+Tôi bị đau ngực và khó thở, có kèm theo cảm giác chóng mặt. Tôi nên làm gì?	guide_symptoms
+Tôi bị sốt và đau đầu trong ba ngày nay, kèm theo cảm giác mệt mỏi.	guide_symptoms
+Tôi bị sốt và đau đầu gần đây, kèm theo cảm giác mệt mỏi.	guide_symptoms
+Tôi bị sốt cao và đau đầu trong 3 ngày nay, kèm theo cảm giác mệt mỏi.	guide_department
+Tôi bị sốt cao kèm đau đầu và cơ thể mệt mỏi, bác sĩ có thể giúp tôi kiểm tra xem mình bị sốt xuất huyết không ạ?	guide_symptoms
+Tôi bị sốt cao kèm theo đau đầu và đau nhức cơ thể, mình có nên đi khám ngay không ạ?	guide_symptoms
+Tôi bị sốt cao, đau đầu và cơ thể mệt mỏi, bác sĩ có thể giúp tôi kiểm tra xem có bị Covid-19 không ạ?	guide_symptoms
+Tôi bị sốt cao kèm theo đau đầu và cơ thể mệt mỏi, mình lo lắng là bị Covid-19 quá.	guide_symptoms
+Tôi bị sốt cao và đau đầu trong ba ngày nay, kèm theo cảm giác mệt mỏi liên tục. Tôi lo lắng về việc mình có thể bị Covid-19 hoặc một bệnh nhiễm trùng khác. Bạn có thể giúp tôi đánh giá tình trạng sức khỏe này không?	guide_symptoms
+Tôi bị sốt cao kèm theo đau đầu và cơ thể mệt mỏi trong ba ngày nay. Tôi lo lắng về việc mình có thể bị Covid-19 hoặc một bệnh nhiễm trùng khác. Tôi nên làm gì?	guide_symptoms
