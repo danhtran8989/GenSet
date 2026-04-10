@@ -587,3 +587,24 @@ For issues or questions:
 - Dual-platform support (Mistral AI, Ollama)
 - Robust JSON parsing with fallback strategies
 - Output management with directory creation
+
+## API call
+```bash
+curl -X POST http://localhost:8000/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "ollama",
+    "language": "vietnamese",
+    "domain": "medical assistant conversation",
+    "labels": [
+      "guide_symptoms", "guide_department", "guide_first_aid", "get_doctor",
+      "get_patient_admin", "get_appointment", "explain_procedure", "guide_insurance",
+      "guide_navigation", "explain_medical_education", "explain_document", "guide_booking"
+    ],
+    "num_samples": 300,
+    "model": "gemma4:26b",
+    "temperature": 0.7,
+    "multilingual": true,
+    "balance_labels": true
+  }'
+```
